@@ -33,6 +33,25 @@ function Invoke-Sc {
     return $LASTEXITCODE
 }
 
+function Stop-WootkitService {
+    $queryExit = Invoke-Sc -Arguments @("query", "WootkitSensor")
+    if ($queryExit -ne 0) {
+        return
+    }
+
+    Write-Host "Stopping existing WootkitSensor service"
+    Invoke-Sc -Arguments @("stop", "WootkitSensor") | Out-Null
+
+    for ($i = 0; $i -lt 20; $i++) {
+        $service = Get-Service -Name "WootkitSensor" -ErrorAction SilentlyContinue
+        if (-not $service -or $service.Status -eq "Stopped") {
+            return
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 if (-not (Test-Admin)) {
     throw "Run this script from an Administrator PowerShell."
 }
@@ -63,8 +82,15 @@ if (-not (Test-ValidSignature -Path $sys)) {
     throw "Driver signature is still not valid after signing. Check the local certificate trust store."
 }
 
+Stop-WootkitService
+
 Write-Host "Copying driver to $target"
-Copy-Item -LiteralPath $sys -Destination $target -Force
+try {
+    Copy-Item -LiteralPath $sys -Destination $target -Force
+}
+catch {
+    throw "Could not replace $target because Windows still has it open. Run .\scripts\remove_sensor.ps1, reboot, then run .\scripts\install_sensor.ps1 again. Original error: $($_.Exception.Message)"
+}
 
 Write-Host "Creating or updating WootkitSensor service"
 $queryExit = Invoke-Sc -Arguments @("query", "WootkitSensor")
