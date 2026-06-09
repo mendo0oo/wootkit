@@ -1,7 +1,11 @@
 param(
     [switch]$Install,
     [switch]$EnableTestSigning,
-    [switch]$Build
+    [switch]$CreateSigningCert,
+    [switch]$Build,
+    [switch]$SignDriver,
+    [switch]$PrepareHost,
+    [switch]$Full
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,8 +97,19 @@ function Install-WingetPackage {
     }
 }
 
-Write-Host "Wootkit VM requirement bootstrap"
+Write-Host "Wootkit requirement bootstrap"
 Write-Host ""
+
+if ($PrepareHost -or $Full) {
+    $Install = $true
+    $EnableTestSigning = $true
+    $CreateSigningCert = $true
+}
+
+if ($Full) {
+    $Build = $true
+    $SignDriver = $true
+}
 
 $checks = [ordered]@{
     "Administrator shell" = Test-Admin
@@ -102,6 +117,7 @@ $checks = [ordered]@{
     "Git" = Test-CommandExists git
     "MSVC x64 tools" = Test-Msvc
     "Windows Driver Kit" = Test-Wdk
+    "Signing tool" = Test-Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
 }
 
 foreach ($item in $checks.GetEnumerator()) {
@@ -149,10 +165,27 @@ if ($Build) {
     & (Join-Path $PSScriptRoot "..\collector\build_collector.ps1")
 }
 
+if ($CreateSigningCert) {
+    if (-not (Test-Admin)) {
+        throw "Run this script from an Administrator PowerShell when using -CreateSigningCert."
+    }
+
+    $driverPath = Join-Path $PSScriptRoot "..\driver\x64\Release\WootkitSensor.sys"
+    if (-not (Test-Path $driverPath)) {
+        Write-Host "Driver is not built yet; creating the signing certificate after a temporary build."
+        & (Join-Path $PSScriptRoot "..\driver\build_driver.ps1")
+    }
+
+    & (Join-Path $PSScriptRoot "sign_driver.ps1")
+}
+
+if ($SignDriver -and -not $CreateSigningCert) {
+    & (Join-Path $PSScriptRoot "sign_driver.ps1")
+}
+
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  .\scripts\bootstrap_requirements.ps1 -Install"
-Write-Host "  .\scripts\bootstrap_requirements.ps1 -EnableTestSigning"
+Write-Host "  .\scripts\bootstrap_requirements.ps1 -PrepareHost"
 Write-Host "  Restart-Computer"
-Write-Host "  .\scripts\bootstrap_requirements.ps1 -Build"
+Write-Host "  .\scripts\bootstrap_requirements.ps1 -Build -SignDriver"
 Write-Host "  .\scripts\install_sensor.ps1"
