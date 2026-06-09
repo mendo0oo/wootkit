@@ -40,8 +40,9 @@ Check and install build requirements:
 .\scripts\bootstrap_requirements.ps1 -Install
 ```
 
-The bootstrap script uses `winget` to install Git, Visual Studio Build Tools,
-and the Windows Driver Kit when they are missing.
+The bootstrap script uses `winget` when available. If `winget` is not installed,
+it falls back to direct Microsoft downloads for Visual Studio Build Tools and
+the Windows Driver Kit.
 
 Prepare the host for local test-signed driver loading:
 
@@ -52,6 +53,7 @@ Restart-Computer
 
 `-PrepareHost` installs missing build tools, enables Windows test-signing, and
 creates/trusts a local code-signing certificate for Wootkit driver builds.
+Run `Restart-Computer` as a separate command after the bootstrap script exits.
 
 ## Build
 

@@ -97,6 +97,53 @@ function Install-WingetPackage {
     }
 }
 
+function Invoke-DownloadFile {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Write-Host "Downloading $Uri"
+    Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+}
+
+function Install-VisualStudioBuildToolsDirect {
+    $installer = Join-Path $env:TEMP "vs_BuildTools.exe"
+    Invoke-DownloadFile -Uri "https://aka.ms/vs/17/release/vs_BuildTools.exe" -OutFile $installer
+
+    $args = @(
+        "--quiet",
+        "--wait",
+        "--norestart",
+        "--add", "Microsoft.VisualStudio.Workload.VCTools",
+        "--includeRecommended"
+    )
+
+    $proc = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        throw "Visual Studio Build Tools installer failed with exit code $($proc.ExitCode)"
+    }
+
+    if ($proc.ExitCode -eq 3010) {
+        Write-Host "Visual Studio Build Tools installed; restart may be required."
+    }
+}
+
+function Install-WdkDirect {
+    $installer = Join-Path $env:TEMP "wdksetup.exe"
+    Invoke-DownloadFile -Uri "https://go.microsoft.com/fwlink/?LinkId=2362091" -OutFile $installer
+
+    $proc = Start-Process -FilePath $installer -ArgumentList @("/quiet", "/norestart") -Wait -PassThru
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        throw "Windows Driver Kit installer failed with exit code $($proc.ExitCode)"
+    }
+
+    if ($proc.ExitCode -eq 3010) {
+        Write-Host "Windows Driver Kit installed; restart may be required."
+    }
+}
+
 Write-Host "Wootkit requirement bootstrap"
 Write-Host ""
 
@@ -133,18 +180,30 @@ if ($Install) {
         throw "Run this script from an Administrator PowerShell when using -Install."
     }
 
-    if (-not (Test-CommandExists git)) {
+    $hasWinget = Test-CommandExists winget
+
+    if (-not (Test-CommandExists git) -and $hasWinget) {
         Install-WingetPackage -Id "Git.Git"
+    } elseif (-not (Test-CommandExists git)) {
+        Write-Host "Git is missing and winget is unavailable. Skipping Git because it is not required after the repo is downloaded."
     }
 
     if (-not (Test-Msvc)) {
-        Install-WingetPackage `
-            -Id "Microsoft.VisualStudio.2022.BuildTools" `
-            -Override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+        if ($hasWinget) {
+            Install-WingetPackage `
+                -Id "Microsoft.VisualStudio.2022.BuildTools" `
+                -Override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+        } else {
+            Install-VisualStudioBuildToolsDirect
+        }
     }
 
     if (-not (Test-Wdk)) {
-        Install-WingetPackage -Id "Microsoft.WindowsWDK.10"
+        if ($hasWinget) {
+            Install-WingetPackage -Id "Microsoft.WindowsWDK.10"
+        } else {
+            Install-WdkDirect
+        }
     }
 
     Write-Host ""
