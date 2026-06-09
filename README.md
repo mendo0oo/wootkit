@@ -1,79 +1,117 @@
 # Wootkit Kernel Sensor
 
-Defensive Windows kernel sensor prototype for Wootkit.
+Wootkit Kernel Sensor is a defensive Windows kernel telemetry component for
+early process, image-load, and registry visibility. It runs as a system-start
+driver and exposes recent events to a user-mode collector through a read-only
+IOCTL interface.
 
-This is a non-stealth boot/system-start driver concept. It does not hide files,
-processes, drivers, registry keys, or network state. It does not patch kernel
-memory, hook SSDT, perform DKOM, disable security products, or bypass signing.
+The driver is intentionally non-stealth. It does not hide files, processes,
+drivers, registry keys, or network state. It does not patch kernel memory, hook
+SSDT, perform DKOM, bypass driver signing, or disable security products.
 
-## What It Can Do
+## Capabilities
 
-- Register documented kernel callbacks:
-  - process create/exit
-  - image/module load
-  - registry create-key and set-value events
-- Store recent events in an in-memory ring buffer.
-- Flag conservative suspicious signals:
-  - user-writable image paths such as `Users`, `AppData`, or `Temp`
-  - autorun values
+- Process create and exit telemetry
+- Image and module load telemetry
+- Registry create-key and set-value telemetry
+- In-memory event ring buffer
+- Read-only collector interface
+- System-start service configuration
+- Suspicious signal tagging for common persistence paths:
+  - user-writable image locations such as `Users`, `AppData`, and `Temp`
+  - autorun registry values
   - service `ImagePath` changes
   - IFEO `Debugger` changes
-  - Winlogon `Shell` or `Userinit` changes
+  - Winlogon `Shell` and `Userinit` changes
   - `AppInit_DLLs` changes
-- Expose a read-only IOCTL for the collector.
-- Run as `SERVICE_SYSTEM_START` in the INF/install script.
 
 ## Requirements
 
-- Windows VM
-- Visual Studio Build Tools with MSVC
-- Windows Driver Kit headers/libs
-- Administrator shell
-- Test signing enabled for VM testing:
+- Windows 10 or Windows 11
+- Administrator PowerShell
+- Visual Studio Build Tools with MSVC C++ tools
+- Windows Driver Kit
+- Driver signing policy suitable for the build being loaded
+
+Check and install build requirements:
 
 ```powershell
-.\scripts\enable_testsigning.ps1
-Restart-Computer
+.\scripts\bootstrap_requirements.ps1
+.\scripts\bootstrap_requirements.ps1 -Install
 ```
 
-## Build Driver
+The bootstrap script uses `winget` to install Git, Visual Studio Build Tools,
+and the Windows Driver Kit when they are missing.
+
+## Build
+
+Build the driver:
 
 ```powershell
 .\driver\build_driver.ps1
 ```
 
-The script writes:
-
-```text
-driver\x64\Release\WootkitSensor.sys
-```
-
-## Install In VM
-
-```powershell
-.\scripts\install_sensor.ps1
-```
-
-## Build Collector
+Build the collector:
 
 ```powershell
 .\collector\build_collector.ps1
 ```
 
-## Read Events
+Build both:
+
+```powershell
+.\scripts\bootstrap_requirements.ps1 -Build
+```
+
+Build outputs:
+
+```text
+driver\x64\Release\WootkitSensor.sys
+collector\WootkitCollector.exe
+```
+
+## Install
+
+Install and start the kernel sensor from an Administrator PowerShell:
+
+```powershell
+.\scripts\install_sensor.ps1
+```
+
+The install script copies the driver to `System32\drivers`, registers the INF,
+creates the kernel service as system-start, and starts the service.
+
+## Collect Events
+
+Read available kernel events:
 
 ```powershell
 .\collector\WootkitCollector.exe
 ```
 
-Each JSON line includes `severity`, `suspicious`, `kernel_image`, and `rule`
-fields so boot-time persistence and unusual path signals can be filtered.
+Events are emitted as JSON lines. Each event can include:
+
+- `type`
+- `pid`
+- `ppid`
+- `tid`
+- `severity`
+- `suspicious`
+- `kernel_image`
+- `rule`
+- `image`
+- `registry`
 
 ## Remove
+
+Stop and remove the sensor:
 
 ```powershell
 .\scripts\remove_sensor.ps1
 ```
 
-Keep VM snapshots before installing any boot/system-start driver. A broken
-kernel driver can blue-screen the VM before login.
+## Notes
+
+Wootkit Kernel Sensor is designed for defensive visibility and host inspection.
+Kernel driver installation requires administrative control of the machine and a
+valid driver signing posture for the environment where it is loaded.
