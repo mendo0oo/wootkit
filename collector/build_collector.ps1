@@ -30,27 +30,46 @@ if (-not $msvc) {
 }
 
 $kitsInclude = "${env:ProgramFiles(x86)}\Windows Kits\10\Include"
+$kitRoot = Split-Path $kitsInclude -Parent
 $kit = Get-ChildItem -Directory $kitsInclude |
-    Where-Object { Test-Path (Join-Path $_.FullName "um\windows.h") } |
+    Where-Object {
+        (Test-Path (Join-Path $_.FullName "um\windows.h")) -and
+        (Test-Path (Join-Path $kitRoot "Lib\$($_.Name)\um\x64\kernel32.lib")) -and
+        (Test-Path (Join-Path $kitRoot "Lib\$($_.Name)\ucrt\x64"))
+    } |
     Sort-Object Name -Descending |
     Select-Object -First 1
 if (-not $kit) {
-    throw "Windows SDK headers were not found."
+    throw "Windows SDK headers/libs were not found."
 }
 
 $kitVersion = $kit.Name
-$kitRoot = Split-Path $kitsInclude -Parent
 $cl = Join-Path $msvc.FullName "bin\HostX86\x64\cl.exe"
 $msvcInclude = Join-Path $msvc.FullName "include"
 $msvcLib = Join-Path $msvc.FullName "lib\x64"
 $umInclude = Join-Path $kitsInclude "$kitVersion\um"
-$sharedInclude = Join-Path $kitsInclude "$kitVersion\shared"
-$ucrtInclude = Join-Path $kitsInclude "$kitVersion\ucrt"
 $umLib = Join-Path $kitRoot "Lib\$kitVersion\um\x64"
 $ucrtLib = Join-Path $kitRoot "Lib\$kitVersion\ucrt\x64"
+$sharedInclude = Get-ChildItem -Directory $kitsInclude |
+    Where-Object { Test-Path (Join-Path $_.FullName "shared\ntdef.h") } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+$ucrtInclude = Get-ChildItem -Directory $kitsInclude |
+    Where-Object { Test-Path (Join-Path $_.FullName "ucrt\excpt.h") } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+if (-not $sharedInclude) {
+    throw "Windows SDK shared headers were not found. Missing ntdef.h."
+}
+if (-not $ucrtInclude) {
+    throw "Windows SDK UCRT headers were not found. Missing excpt.h."
+}
+
+$sharedIncludePath = Join-Path $sharedInclude.FullName "shared"
+$ucrtIncludePath = Join-Path $ucrtInclude.FullName "ucrt"
 
 & $cl /nologo /EHsc /std:c++20 /O2 /W4 /DUNICODE /D_UNICODE `
-    /I $msvcInclude /I $umInclude /I $sharedInclude /I $ucrtInclude `
+    /I $msvcInclude /I $umInclude /I $sharedIncludePath /I $ucrtIncludePath `
     /Fe$out $src `
     /link /LIBPATH:$msvcLib /LIBPATH:$umLib /LIBPATH:$ucrtLib kernel32.lib
 if ($LASTEXITCODE -ne 0) {

@@ -24,20 +24,35 @@ if (-not (Test-Path $cl) -or -not (Test-Path $link)) {
 }
 
 $kitsInclude = "${env:ProgramFiles(x86)}\Windows Kits\10\Include"
+$kitRoot = Split-Path $kitsInclude -Parent
 $kit = Get-ChildItem -Directory $kitsInclude |
-    Where-Object { Test-Path (Join-Path $_.FullName "km\ntifs.h") } |
+    Where-Object {
+        (Test-Path (Join-Path $_.FullName "km\ntifs.h")) -and
+        (Test-Path (Join-Path $kitRoot "Lib\$($_.Name)\km\x64\ntoskrnl.lib"))
+    } |
     Sort-Object Name -Descending |
     Select-Object -First 1
 if (-not $kit) {
-    throw "Windows Driver Kit kernel headers were not found. Install the Windows 10/11 WDK."
+    throw "Windows Driver Kit kernel headers/libs were not found. Install the Windows 10/11 WDK."
 }
 
 $kitVersion = $kit.Name
-$kitRoot = Split-Path $kitsInclude -Parent
 $kmInclude = Join-Path $kitsInclude "$kitVersion\km"
-$sharedInclude = Join-Path $kitsInclude "$kitVersion\shared"
-$ucrtInclude = Join-Path $kitsInclude "$kitVersion\ucrt"
 $kmLib = Join-Path $kitRoot "Lib\$kitVersion\km\x64"
+$sharedInclude = Get-ChildItem -Directory $kitsInclude |
+    Where-Object { Test-Path (Join-Path $_.FullName "shared\ntdef.h") } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+if (-not $sharedInclude) {
+    throw "Windows SDK shared headers were not found. Missing ntdef.h."
+}
+
+$sharedIncludePath = Join-Path $sharedInclude.FullName "shared"
+$ucrtInclude = Get-ChildItem -Directory $kitsInclude |
+    Where-Object { Test-Path (Join-Path $_.FullName "ucrt") } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+$ucrtIncludePath = if ($ucrtInclude) { Join-Path $ucrtInclude.FullName "ucrt" } else { $null }
 $outDir = Join-Path $PSScriptRoot "x64\Release"
 $objDir = Join-Path $PSScriptRoot "obj\x64\Release"
 New-Item -ItemType Directory -Force -Path $outDir, $objDir | Out-Null
@@ -46,9 +61,14 @@ $src = Join-Path $PSScriptRoot "WootkitSensor.c"
 $obj = Join-Path $objDir "WootkitSensor.obj"
 $sys = Join-Path $outDir "WootkitSensor.sys"
 
+$includeArgs = @("/I", $kmInclude, "/I", $sharedIncludePath, "/I", $msvcInclude)
+if ($ucrtIncludePath) {
+    $includeArgs += @("/I", $ucrtIncludePath)
+}
+
 & $cl /nologo /c /kernel /W4 /WX- /O2 /GS /Zl /TC `
     /D_AMD64_ /DAMD64 /DNTDDI_VERSION=NTDDI_WIN10 /D_WIN32_WINNT=0x0A00 `
-    /I $kmInclude /I $sharedInclude /I $ucrtInclude /I $msvcInclude /Fo$obj $src
+    @includeArgs /Fo$obj $src
 if ($LASTEXITCODE -ne 0) {
     throw "cl.exe failed with exit code $LASTEXITCODE"
 }
