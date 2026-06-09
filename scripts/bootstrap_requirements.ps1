@@ -100,17 +100,58 @@ function Install-WingetPackage {
 function Invoke-DownloadFile {
     param(
         [Parameter(Mandatory)][string]$Uri,
-        [Parameter(Mandatory)][string]$OutFile
+        [Parameter(Mandatory)][string]$OutFile,
+        [string]$Activity = "Downloading"
     )
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Write-Host "Downloading $Uri"
-    Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+    Write-Host "$Activity..."
+
+    $request = [Net.HttpWebRequest]::Create($Uri)
+    $request.AllowAutoRedirect = $true
+    $response = $request.GetResponse()
+
+    try {
+        $totalBytes = $response.ContentLength
+        $inputStream = $response.GetResponseStream()
+        $outputStream = [IO.File]::Open($OutFile, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $buffer = New-Object byte[] 1048576
+        $downloaded = 0L
+
+        try {
+            while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $outputStream.Write($buffer, 0, $read)
+                $downloaded += $read
+
+                if ($totalBytes -gt 0) {
+                    $percent = [Math]::Min(100, [int](($downloaded * 100) / $totalBytes))
+                    $status = "{0:N1} MB / {1:N1} MB" -f ($downloaded / 1MB), ($totalBytes / 1MB)
+                    Write-Progress -Activity $Activity -Status $status -PercentComplete $percent
+                } else {
+                    $status = "{0:N1} MB downloaded" -f ($downloaded / 1MB)
+                    Write-Progress -Activity $Activity -Status $status
+                }
+            }
+        }
+        finally {
+            $outputStream.Close()
+            $inputStream.Close()
+            Write-Progress -Activity $Activity -Completed
+        }
+    }
+    finally {
+        $response.Close()
+    }
+
+    Write-Host "Downloaded $OutFile"
 }
 
 function Install-VisualStudioBuildToolsDirect {
     $installer = Join-Path $env:TEMP "vs_BuildTools.exe"
-    Invoke-DownloadFile -Uri "https://aka.ms/vs/17/release/vs_BuildTools.exe" -OutFile $installer
+    Invoke-DownloadFile `
+        -Uri "https://aka.ms/vs/17/release/vs_BuildTools.exe" `
+        -OutFile $installer `
+        -Activity "Downloading Visual Studio Build Tools bootstrapper"
 
     $args = @(
         "--quiet",
@@ -120,6 +161,7 @@ function Install-VisualStudioBuildToolsDirect {
         "--includeRecommended"
     )
 
+    Write-Host "Installing Visual Studio Build Tools and MSVC C++ tools. This can take several minutes."
     $proc = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
     if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
         throw "Visual Studio Build Tools installer failed with exit code $($proc.ExitCode)"
@@ -132,8 +174,12 @@ function Install-VisualStudioBuildToolsDirect {
 
 function Install-WdkDirect {
     $installer = Join-Path $env:TEMP "wdksetup.exe"
-    Invoke-DownloadFile -Uri "https://go.microsoft.com/fwlink/?LinkId=2362091" -OutFile $installer
+    Invoke-DownloadFile `
+        -Uri "https://go.microsoft.com/fwlink/?LinkId=2362091" `
+        -OutFile $installer `
+        -Activity "Downloading Windows Driver Kit installer"
 
+    Write-Host "Installing Windows Driver Kit. This can take several minutes."
     $proc = Start-Process -FilePath $installer -ArgumentList @("/quiet", "/norestart") -Wait -PassThru
     if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
         throw "Windows Driver Kit installer failed with exit code $($proc.ExitCode)"
