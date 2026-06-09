@@ -58,7 +58,8 @@ if (-not (Test-Admin)) {
 
 $driverDir = Resolve-Path (Join-Path $PSScriptRoot "..\driver")
 $sys = Join-Path $driverDir "x64\Release\WootkitSensor.sys"
-$target = Join-Path $env:SystemRoot "System32\drivers\WootkitSensor.sys"
+$driversDir = Join-Path $env:SystemRoot "System32\drivers"
+$target = Join-Path $driversDir "WootkitSensor.sys"
 $signScript = Join-Path $PSScriptRoot "sign_driver.ps1"
 
 if (-not (Test-Path $sys)) {
@@ -85,19 +86,27 @@ if (-not (Test-ValidSignature -Path $sys)) {
 Stop-WootkitService
 
 Write-Host "Copying driver to $target"
+$serviceBinary = "System32\drivers\WootkitSensor.sys"
 try {
     Copy-Item -LiteralPath $sys -Destination $target -Force
 }
 catch {
-    throw "Could not replace $target because Windows still has it open. Run .\scripts\remove_sensor.ps1, reboot, then run .\scripts\install_sensor.ps1 again. Original error: $($_.Exception.Message)"
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $fallbackName = "WootkitSensor-$stamp.sys"
+    $fallbackTarget = Join-Path $driversDir $fallbackName
+
+    Write-Warning "Could not replace $target because Windows still has it open. Installing this build as $fallbackName instead."
+    Copy-Item -LiteralPath $sys -Destination $fallbackTarget -Force
+    $target = $fallbackTarget
+    $serviceBinary = "System32\drivers\$fallbackName"
 }
 
 Write-Host "Creating or updating WootkitSensor service"
 $queryExit = Invoke-Sc -Arguments @("query", "WootkitSensor")
 if ($queryExit -eq 0) {
-    Invoke-Sc -Arguments @("config", "WootkitSensor", "type=", "kernel", "start=", "system", "binPath=", "System32\drivers\WootkitSensor.sys", "DisplayName=", "Wootkit Defensive Kernel Sensor") | Out-Null
+    Invoke-Sc -Arguments @("config", "WootkitSensor", "type=", "kernel", "start=", "system", "binPath=", $serviceBinary, "DisplayName=", "Wootkit Defensive Kernel Sensor") | Out-Null
 } else {
-    Invoke-Sc -Arguments @("create", "WootkitSensor", "type=", "kernel", "start=", "system", "binPath=", "System32\drivers\WootkitSensor.sys", "DisplayName=", "Wootkit Defensive Kernel Sensor") | Out-Null
+    Invoke-Sc -Arguments @("create", "WootkitSensor", "type=", "kernel", "start=", "system", "binPath=", $serviceBinary, "DisplayName=", "Wootkit Defensive Kernel Sensor") | Out-Null
 }
 
 Write-Host "Starting WootkitSensor"
@@ -106,4 +115,4 @@ if ($startExit -ne 0) {
     throw "Failed to start WootkitSensor. If this is error 577, rerun .\scripts\bootstrap_requirements.ps1 -PrepareHost, reboot, then .\scripts\bootstrap_requirements.ps1 -Build -SignDriver."
 }
 
-Write-Host "WootkitSensor installed and started."
+Write-Host "WootkitSensor installed and started from $target."
