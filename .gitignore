@@ -1,0 +1,15 @@
+# Build outputs
+collector/*.exe
+driver/**/*.obj
+driver/**/*.pdb
+driver/**/*.recipe
+driver/**/*.tlog/
+driver/**/*.sys
+
+# Visual Studio/user-local files
+.vs/
+*.user
+*.suo
+
+# PowerShell/transient files
+*.log
