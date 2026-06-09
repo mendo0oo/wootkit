@@ -68,6 +68,24 @@ function Test-Wdk {
     return $null -ne $kit
 }
 
+function Test-TestSigningEnabled {
+    $output = & bcdedit /enum "{current}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    return ($output -match "testsigning\s+Yes")
+}
+
+function Test-SecureBootEnabled {
+    try {
+        return [bool](Confirm-SecureBootUEFI)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Install-WingetPackage {
     param(
         [Parameter(Mandatory)][string]$Id,
@@ -211,6 +229,8 @@ $checks = [ordered]@{
     "MSVC x64 tools" = Test-Msvc
     "Windows Driver Kit" = Test-Wdk
     "Signing tool" = Test-Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+    "Test-signing active" = Test-TestSigningEnabled
+    "Secure Boot disabled" = -not (Test-SecureBootEnabled)
 }
 
 foreach ($item in $checks.GetEnumerator()) {
@@ -262,6 +282,9 @@ if ($EnableTestSigning) {
     }
 
     & (Join-Path $PSScriptRoot "enable_testsigning.ps1")
+    if (Test-SecureBootEnabled) {
+        Write-Warning "Secure Boot is enabled. Disable Secure Boot in firmware/VM settings or Windows will keep rejecting local test-signed kernel drivers."
+    }
     Write-Host "Restart required before loading the driver."
 }
 

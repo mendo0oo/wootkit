@@ -19,6 +19,15 @@ function Test-TestSigningEnabled {
     return ($output -match "testsigning\s+Yes")
 }
 
+function Test-SecureBootEnabled {
+    try {
+        return [bool](Confirm-SecureBootUEFI)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Test-ValidSignature {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -70,6 +79,10 @@ if (-not (Test-TestSigningEnabled)) {
     throw "Windows test-signing is not enabled for this boot entry. Run .\scripts\bootstrap_requirements.ps1 -PrepareHost, reboot, then run install again."
 }
 
+if (Test-SecureBootEnabled) {
+    throw "Secure Boot is enabled. Windows will not load this local test-signed kernel driver while Secure Boot is enabled. Disable Secure Boot in firmware/VM settings, boot Windows, rerun .\scripts\bootstrap_requirements.ps1 -PrepareHost, reboot, then install again."
+}
+
 if (-not (Test-ValidSignature -Path $sys)) {
     if ($NoAutoSign) {
         throw "Driver is not signed. Run .\scripts\bootstrap_requirements.ps1 -Build -SignDriver first."
@@ -101,6 +114,11 @@ catch {
     $serviceBinary = "System32\drivers\$fallbackName"
 }
 
+if (-not (Test-ValidSignature -Path $target)) {
+    $signature = Get-AuthenticodeSignature -FilePath $target
+    throw "Copied driver signature is not valid. Status: $($signature.Status). StatusMessage: $($signature.StatusMessage)"
+}
+
 Write-Host "Creating or updating WootkitSensor service"
 $queryExit = Invoke-Sc -Arguments @("query", "WootkitSensor")
 if ($queryExit -eq 0) {
@@ -112,7 +130,7 @@ if ($queryExit -eq 0) {
 Write-Host "Starting WootkitSensor"
 $startExit = Invoke-Sc -Arguments @("start", "WootkitSensor")
 if ($startExit -ne 0) {
-    throw "Failed to start WootkitSensor. If this is error 577, rerun .\scripts\bootstrap_requirements.ps1 -PrepareHost, reboot, then .\scripts\bootstrap_requirements.ps1 -Build -SignDriver."
+    throw "Failed to start WootkitSensor. For error 577, confirm Secure Boot is disabled and test-signing is active: bcdedit /enum {current}. Then rerun .\scripts\bootstrap_requirements.ps1 -PrepareHost, reboot, and .\scripts\bootstrap_requirements.ps1 -Build -SignDriver."
 }
 
 Write-Host "WootkitSensor installed and started from $target."
