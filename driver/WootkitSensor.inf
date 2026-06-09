@@ -1,0 +1,37 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ManufacturerName%
+DriverVer=06/06/2026,0.1.0.0
+CatalogFile=WootkitSensor.cat
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64
+
+[Standard.NTamd64]
+%WootkitSensor.DeviceDesc%=WootkitSensor_Install, Root\WootkitSensor
+
+[WootkitSensor_Install.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+WootkitSensor.sys
+
+[WootkitSensor_Install.NT.Services]
+AddService=WootkitSensor,0x00000002,WootkitSensor_Service
+
+[WootkitSensor_Service]
+DisplayName=%WootkitSensor.ServiceDesc%
+ServiceType=1
+StartType=1
+ErrorControl=1
+ServiceBinary=%12%\WootkitSensor.sys
+
+[Strings]
+ManufacturerName="Wootkit"
+WootkitSensor.DeviceDesc="Wootkit Defensive Kernel Sensor"
+WootkitSensor.ServiceDesc="Wootkit Defensive Kernel Sensor"
