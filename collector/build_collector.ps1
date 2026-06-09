@@ -55,21 +55,22 @@ $sharedInclude = Get-ChildItem -Directory $kitsInclude |
     Sort-Object Name -Descending |
     Select-Object -First 1
 $ucrtInclude = Get-ChildItem -Directory $kitsInclude |
-    Where-Object { Test-Path (Join-Path $_.FullName "ucrt\excpt.h") } |
+    Where-Object { Test-Path (Join-Path $_.FullName "ucrt") } |
     Sort-Object Name -Descending |
     Select-Object -First 1
 if (-not $sharedInclude) {
     throw "Windows SDK shared headers were not found. Missing ntdef.h."
 }
-if (-not $ucrtInclude) {
-    throw "Windows SDK UCRT headers were not found. Missing excpt.h."
-}
 
 $sharedIncludePath = Join-Path $sharedInclude.FullName "shared"
-$ucrtIncludePath = Join-Path $ucrtInclude.FullName "ucrt"
+$ucrtIncludePath = if ($ucrtInclude) { Join-Path $ucrtInclude.FullName "ucrt" } else { $null }
+$includeArgs = @("/I", $msvcInclude, "/I", $umInclude, "/I", $sharedIncludePath)
+if ($ucrtIncludePath) {
+    $includeArgs += @("/I", $ucrtIncludePath)
+}
 
 & $cl /nologo /EHsc /std:c++20 /O2 /W4 /DUNICODE /D_UNICODE `
-    /I $msvcInclude /I $umInclude /I $sharedIncludePath /I $ucrtIncludePath `
+    @includeArgs `
     /Fe$out $src `
     /link /LIBPATH:$msvcLib /LIBPATH:$umLib /LIBPATH:$ucrtLib kernel32.lib
 if ($LASTEXITCODE -ne 0) {
